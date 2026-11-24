@@ -5,7 +5,7 @@ Gedacht für Logs, die in der App wegen ihrer Größe (> ca. 10.000 Messwerte) n
 
 ## Benutzung
 
-1. Seite öffnen (oder `index.html` lokal im Browser öffnen).
+1. Seite öffnen https://schalonsus.github.io/fardriver-log-viewer/ (oder `index.html` lokal im Browser öffnen).
 2. Logdatei(en) auswählen oder auf die Seite ziehen. Mehrere Dateien gleichzeitig sind möglich.
 
 Alles läuft lokal im Browser. Die Logs werden nicht hochgeladen. Nur die Kartenkacheln werden von Esri / OpenTopoMap geladen.
