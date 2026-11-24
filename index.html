@@ -62,7 +62,8 @@ footer{margin:28px 0 8px;font-size:12px;color:var(--ink2);border-top:1px solid v
 <div class="wrap">
 <h1>Fardriver Log-Viewer</h1>
 <p class="sub">Logs aus Worthless Controls (Format WLOG1) direkt im Browser ansehen – ohne die App und ohne Zeilenlimit. Die Dateien bleiben auf deinem Gerät.</p>
-<div id="welcome"><label class="drop"><input type="file" id="f0" accept=".csv,.txt" multiple><b>Log-Dateien hier öffnen</b><span>Tippen zum Auswählen oder Dateien hierher ziehen · mehrere Dateien gleichzeitig möglich</span></label></div>
+<div id="welcome"><label class="drop"><input type="file" id="f0" accept=".csv,.txt" multiple><b>Log-Dateien hier öffnen</b><span>Tippen zum Auswählen oder Dateien hierher ziehen · mehrere Dateien gleichzeitig möglich</span></label>
+<p style="text-align:center;margin:14px 0 0"><button id="demoBtn">Demo-Log laden (10.475 Messpunkte, fiktive GPS-Strecke)</button></p></div>
 <div id="app" hidden>
 <div class="bar" id="tabs"></div>
 <h2 id="tilesH">Kennzahlen</h2>
@@ -189,6 +190,7 @@ async function addFiles(list){
  for(const f of files){try{const r=parseWlog(await f.text());if(!r.n||!r.t.length)throw 0;r.name=niceName(f.name);DATA.push(r);if(first<0)first=DATA.length-1}catch(x){bad++}}
  $("err").textContent=bad?bad+" Datei(en) konnten nicht gelesen werden (erwartet: WLOG1-CSV mit Kopfzeile).":"";
  if(first>=0){cur=first;sel=new Set(DEFAULT.filter(k=>D().ch[k]));fresh()}}
+$("demoBtn").onclick=async()=>{try{const r=await fetch("demo-log.csv");if(!r.ok)throw 0;const f=new File([await r.text()],"Demo-Log.csv");addFiles([f])}catch(x){$("err").textContent="Demo-Log konnte nicht geladen werden (nur über die veröffentlichte Seite verfügbar, nicht beim lokalen Öffnen)."}};
 $("f0").onchange=e=>{addFiles(e.target.files);e.target.value=""};
 addEventListener("dragover",e=>{e.preventDefault();$("welcome").firstElementChild.classList.add("over")});
 addEventListener("dragleave",()=>$("welcome").firstElementChild.classList.remove("over"));
