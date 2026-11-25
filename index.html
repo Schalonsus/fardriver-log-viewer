@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fardriver Log-Viewer</title>
-<meta name="description" content="Inoffizieller Viewer für Fardriver-Logs aus Worthless Controls (WLOG1): Diagramme, Zoom, Karte. Läuft komplett im Browser.">
+<meta name="description" content="Inoffizieller Viewer für Fardriver-Logs aus Worthless Controls (WLOG1) mit BMS-Daten: Diagramme, Zoom, Karte. Läuft komplett im Browser.">
 <style>
 :root{color-scheme:light;--bg:#fcfcfb;--panel:#ffffff;--ink:#0b0b0b;--ink2:#52514e;--grid:#e6e5e1;--line:#d4d3ce;--acc:#2a78d6}
 @media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#1a1a19;--panel:#222221;--ink:#f0efec;--ink2:#c3c2b7;--grid:#333331;--line:#44443f;--acc:#3987e5}}
@@ -51,6 +51,7 @@ canvas.ch{width:100%;display:block;touch-action:pan-y;cursor:crosshair}
 .mh{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
 .mh strong{margin-right:auto}
 .grad{display:inline-block;width:90px;height:8px;border-radius:4px;background:linear-gradient(90deg,hsl(215,80%,50%),hsl(120,80%,50%),hsl(25,80%,50%));vertical-align:middle;margin:0 6px}
+[hidden]{display:none!important}#mctl{display:contents}
 .legend{font-size:12px;color:var(--ink2);margin:6px 0 4px}
 .hint{font-size:12px;color:var(--ink2);margin:0 0 10px}
 .drop{display:flex;flex-direction:column;gap:6px;align-items:center;text-align:center;border:2px dashed var(--line);border-radius:14px;padding:48px 16px;cursor:pointer;background:var(--panel)}.drop input{display:none}.drop b{font-size:18px}.drop span{color:var(--ink2);font-size:13px}.drop.over{border-color:var(--acc)}
@@ -87,11 +88,12 @@ footer{margin:28px 0 8px;font-size:12px;color:var(--ink2);border-top:1px solid v
 </details>
 
 <div class="panel" id="mapPanel">
- <div class="mh"><strong>Strecke</strong>
+ <div class="mh"><strong>Strecke</strong><span id="mctl">
   <label style="font-size:13px;color:var(--ink2)">Färben nach <select id="mby"></select></label>
   <select id="mlay"><option value="street">Straßenkarte</option><option value="topo">Topografisch</option><option value="sat">Satellit</option><option value="gray">Hellgrau</option><option value="dark">Dunkelgrau</option><option value="otm">OpenTopoMap</option><option value="none">ohne Karte</option></select>
   <button id="mfit">Ganze Strecke</button><button id="mwin">Auf Auswahl</button><button id="mzi">＋</button><button id="mzo">－</button>
- </div>
+ </span></div>
+ <div class="legend" id="mnote" hidden></div>
  <canvas id="map"></canvas>
  <div class="legend" id="mlegend"></div>
 </div>
@@ -110,22 +112,29 @@ const META={
  throttle:["Gas","%"],throttleRaw:["Gas (roh)",""],throttleV:["Gas-Spannung","V"],modulation:["Modulation",""],soc:["Ladestand (SOC)","%"],
  motorTemp:["Motortemperatur","°C"],ctrlTemp:["Reglertemperatur","°C"],gear:["Gang",""],brakeActive:["Bremse aktiv",""],
  fieldWeakening:["Feldschwächung",""],reversing:["Rückwärts",""],xsControl:["xsControl",""],hasError:["Fehler",""],errorCode:["Fehlercode",""],
- gps_lat:["GPS Breite","°"],gps_lng:["GPS Länge","°"],gps_alt:["Höhe (GPS)","m"],gps_accuracy:["GPS-Genauigkeit","m"]};
+ gps_lat:["GPS Breite","°"],gps_lng:["GPS Länge","°"],gps_alt:["Höhe (GPS)","m"],gps_accuracy:["GPS-Genauigkeit","m"],
+ bms_voltage:["BMS Spannung","V"],bms_current:["BMS Strom","A"],bms_power:["BMS Leistung","kW",.001],bms_soc:["BMS Ladestand (SOC)","%"],bms_avgTemp:["BMS Ø-Temperatur","°C"],
+ bms_cellDelta:["BMS Zelldifferenz","mV"],bms_remainCap:["BMS Restkapazität","Ah"],bms_totalCap:["BMS Gesamtkapazität","Ah"],bms_minCellV:["BMS min. Zellspannung","V"],bms_maxCellV:["BMS max. Zellspannung","V"],
+ bms_mosfetTemp:["BMS MOSFET-Temp.","°C"],bms_chargeFet:["BMS Lade-FET",""],bms_dischargeFet:["BMS Entlade-FET",""],bms_cycles:["BMS Zyklen",""],bms_cellCount:["BMS Zellenzahl",""],bms_balancing:["BMS Balancing",""],
+ bms_cellMin:["Zelle min.","V"],bms_cellMax:["Zelle max.","V"],bms_cellWeak:["Schwächste Zelle (Nr.)",""]};
 const CATS=[["Fahrdaten",["speed","rpm","power","current","phaseA","phaseC","voltage","throttle","throttleRaw","throttleV","modulation","soc"]],
  ["Temperaturen",["motorTemp","ctrlTemp"]],["Status",["gear","brakeActive","fieldWeakening","reversing","xsControl","hasError","errorCode"]],
- ["GPS",["gps_speed","gps_alt","gps_accuracy","gps_lat","gps_lng"]]];
-const ORDER=["speed","gps_speed","power","current","phaseA","phaseC","voltage","rpm","throttle","motorTemp","ctrlTemp","soc","throttleRaw","throttleV","modulation","gear","brakeActive","fieldWeakening","reversing","xsControl","hasError","errorCode","gps_alt","gps_accuracy","gps_lat","gps_lng"];
-const DEFAULT=["speed","gps_speed","power","current","phaseA","voltage","rpm","throttle","motorTemp","ctrlTemp","soc"];
-const GROUPS={speed:{t:"Geschwindigkeit",m:["speed","gps_speed"]},phase:{t:"Phasenstrom",m:["phaseA","phaseC"]},temp:{t:"Temperaturen",m:["motorTemp","ctrlTemp"]}};
+ ["GPS",["gps_speed","gps_alt","gps_accuracy","gps_lat","gps_lng"]],
+ ["BMS",["bms_voltage","bms_current","bms_power","bms_soc","bms_cellMin","bms_cellMax","bms_cellWeak","bms_cellDelta","bms_remainCap","bms_minCellV","bms_maxCellV","bms_avgTemp","bms_mosfetTemp","bms_cycles","bms_balancing","bms_chargeFet","bms_dischargeFet"]]];
+const ORDER=["speed","gps_speed","power","bms_power","current","bms_current","phaseA","phaseC","voltage","bms_voltage","rpm","throttle","motorTemp","ctrlTemp","soc","bms_soc","bms_cellMin","bms_cellMax","bms_cellDelta","bms_remainCap","bms_cellWeak","bms_minCellV","bms_maxCellV","bms_avgTemp","bms_mosfetTemp","bms_cycles","bms_balancing","bms_chargeFet","bms_dischargeFet","throttleRaw","throttleV","modulation","gear","brakeActive","fieldWeakening","reversing","xsControl","hasError","errorCode","gps_alt","gps_accuracy","gps_lat","gps_lng"];
+const DEFAULT=["speed","gps_speed","power","current","phaseA","voltage","bms_voltage","rpm","throttle","motorTemp","ctrlTemp","soc","bms_soc","bms_current","bms_cellMin","bms_cellMax","bms_cellDelta"];
+const GROUPS={speed:{t:"Geschwindigkeit",m:["speed","gps_speed"]},phase:{t:"Phasenstrom",m:["phaseA","phaseC"]},temp:{t:"Temperaturen",m:["motorTemp","ctrlTemp"]},volt:{t:"Spannung (Controller / BMS)",m:["voltage","bms_voltage"]},soc:{t:"Ladestand (Controller / BMS)",m:["soc","bms_soc"]},cellsmm:{t:"Zellspannungen min / max",m:["bms_cellMin","bms_cellMax"]}};
 const PAL=[["#2a78d6","#3987e5"],["#eb6834","#d95926"],["#1baf7a","#199e70"],["#eda100","#c98500"],["#e87ba4","#d55181"],["#008300","#0ca30c"],["#6250d6","#9085e9"],["#0e7c86","#2aa5b0"]];
 const $=id=>document.getElementById(id);
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const isDark=()=>matchMedia("(prefers-color-scheme:dark)").matches;
 const D=()=>DATA[cur];
-const meta=k=>{const m=META[k];return m?{label:m[0],unit:m[1],sc:m[2]||1}:{label:k,unit:"",sc:1}};
-const gidOf=k=>{for(const g in GROUPS)if(GROUPS[g].m.includes(k))return g;return k};
+const meta=k=>{let m=META[k];if(m)return{label:m[0],unit:m[1],sc:m[2]||1};
+ const b=k.match(/^bms(\d?)_(.+)$/);if(b){const n=b[2],sfx=b[1]?" (BMS "+b[1]+")":"";if(m=META["bms_"+n])return{label:m[0]+sfx,unit:m[1],sc:m[2]||1};let c=n.match(/^cell(\d+)$/);if(c)return{label:"Zelle "+c[1]+sfx,unit:"V",sc:1};c=n.match(/^temp(\d+)$/);if(c)return{label:"BMS Temp "+c[1]+sfx,unit:"°C",sc:1}}
+ return{label:k,unit:"",sc:1}};
+const gidOf=k=>{if(/^bms\d?_cell\d+$/.test(k))return"cellsall";for(const g in GROUPS)if(GROUPS[g].m.includes(k))return g;return k};
 const rank=k=>{const i=ORDER.indexOf(k);return i<0?1000:i};
-const colorOf=k=>{let i=ORDER.indexOf(k);if(i<0)i=ORDER.length+[...k].reduce((s,c)=>s+c.charCodeAt(0),0);return PAL[i%8][isDark()?1:0]};
+const colorOf=k=>{const cm=k.match(/^bms\d?_cell(\d+)$/);if(cm)return`hsl(${(cm[1]*137.5)%360},65%,${isDark()?62:45}%)`;let i=ORDER.indexOf(k);if(i<0)i=ORDER.length+[...k].reduce((s,c)=>s+c.charCodeAt(0),0);return PAL[i%8][isDark()?1:0]};
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function lower(a,t){let lo=0,hi=a.length-1;while(lo<hi){const m=(lo+hi)>>1;a[m]<t?lo=m+1:hi=m}return lo}
 function niceStep(r){const e=Math.pow(10,Math.floor(Math.log10(r))),f=r/e;return(f<1.5?1:f<3?2:f<7?5:10)*e}
@@ -146,7 +155,9 @@ function onView(){renderStats();const [a,b]=dom();$("rng").textContent=fmtT(a)+"
 /* ---------- Daten laden ---------- */
 function parseWlog(text){
  const L=text.split(/\r?\n/);let i=0;while(i<L.length&&L[i].startsWith('#'))i++;
- const head=L[i].split(',').map(h=>h.replace(/^[A-Z]+_[^_]+_/,''));
+ const tags={};let nb=0;
+ const head=L[i].split(',').map(h=>{const m=h.match(/^([A-Z]+)_([^_]+)_(.+)$/);if(!m)return h;if(m[1]==="FD"||m[1]==="VESC")return m[3];
+  const id=m[1]+"_"+m[2];if(!(id in tags))tags[id]=nb++?"bms"+nb+"_":"bms_";return tags[id]+m[3]});
  const cols=head.map(()=>[]);let n=0;
  for(let j=i+1;j<L.length;j++){if(!L[j])continue;const p=L[j].split(',');for(let c=0;c<head.length;c++)cols[c].push(parseFloat(p[c]));n++}
  const ti=head.indexOf("elapsed_s");let t;
@@ -154,6 +165,12 @@ function parseWlog(text){
  const r={name:"",n,t,ch:{},cst:{}};
  head.forEach((h,c)=>{if(h==="timestamp"||h==="elapsed_s")return;const a=cols[c];let v=false;for(let q=1;q<n;q++)if(a[q]!==a[0]){v=true;break}
   if(v)r.ch[h]=a;else r.cst[h]=a[0]});
+ const cc=head.map((h,c)=>/^bms_cell\d+$/.test(h)&&cols[c].some(v=>v>0.5)?c:-1).filter(c=>c>=0);
+ if(cc.length>1){const mn=new Array(n),mx=new Array(n),wk=new Array(n);
+  for(let q=0;q<n;q++){let lo=Infinity,hi=-Infinity,w=0;cc.forEach(c=>{const v=cols[c][q];if(v>0.5){if(v<lo){lo=v;w=parseInt(head[c].match(/\d+$/)[0])}if(v>hi)hi=v}});mn[q]=isFinite(lo)?lo:NaN;mx[q]=isFinite(hi)?hi:NaN;wk[q]=w}
+  r.ch.bms_cellMin=mn;r.ch.bms_cellMax=mx;r.ch.bms_cellWeak=wk}
+ const la=r.ch.gps_lat,lo=r.ch.gps_lng,u=new Set();if(la&&lo)for(let q=0;q<n;q++)if(la[q]||lo[q])u.add(la[q]+","+lo[q]);
+ r.gpsPos=u.size;r.gpsOK=u.size>=10;
  return r}
 
 /* ---------- Kennzahlen ---------- */
@@ -166,13 +183,19 @@ function renderStats(){
  const tl=[],add=(l,v)=>{if(v!==null&&v!==undefined&&!(typeof v==="string"&&v.startsWith("null")))tl.push([l,v])};
  const f=(v,u,dec=0)=>v===null?null:v.toFixed(dec)+" "+u;
  add("Dauer",fmtT(d.t[i1]-d.t[i0])+" min");
- add("Max. Geschw. (Controller)",f(mx("speed"),"km/h"));add("Max. Geschw. (GPS)",f(mx("gps_speed"),"km/h"));
+ add("Max. Geschw. (Controller)",f(mx("speed"),"km/h"));if(d.gpsOK)add("Max. Geschw. (GPS)",f(mx("gps_speed"),"km/h"));
  add("Max. Leistung",c.power?(mx("power")/1000).toFixed(1)+" kW":null);add("Max. Batteriestrom",f(mx("current"),"A"));add("Max. Phasenstrom",f(mx("phaseA"),"A"));
- add("Min. Spannung",f(mn("voltage"),"V",1));add("Ladestand",c.soc?c.soc[i0].toFixed(0)+" → "+c.soc[i1].toFixed(0)+" %":null);
+ add("Min. Spannung (Controller)",f(mn("voltage"),"V",1));add("Ladestand (Controller)",c.soc?c.soc[i0].toFixed(0)+" → "+c.soc[i1].toFixed(0)+" %":null);
  add("Max. Motortemp.",f(mx("motorTemp"),"°C"));add("Max. Reglertemp.",f(mx("ctrlTemp"),"°C"));
  if(c.power){add("Energie netto",(e/1000).toFixed(3)+" kWh");add("Rekuperiert",(reg/1000).toFixed(3)+" kWh")}
  if(c.speed)add("Strecke (Controller)",dist.toFixed(2)+" km");
- if(c.gps_speed){add("Strecke (GPS)",gdist.toFixed(2)+" km");if(c.power&&gdist>.2)add("Verbrauch (GPS)",(e/gdist).toFixed(0)+" Wh/km")}
+ if(c.gps_speed&&d.gpsOK){add("Strecke (GPS)",gdist.toFixed(2)+" km");if(c.power&&gdist>.2)add("Verbrauch (GPS)",(e/gdist).toFixed(0)+" Wh/km")}
+ if(c.bms_cellMin){const m=mn("bms_cellMin");let wi=i0;for(let i=i0;i<=i1;i++)if(c.bms_cellMin[i]===m){wi=i;break}add("BMS min. Zellspannung",m.toFixed(3)+" V (Zelle "+c.bms_cellWeak[wi]+")")}
+ if(c.bms_cellDelta)add("BMS max. Zelldifferenz",mx("bms_cellDelta").toFixed(0)+" mV");
+ if(c.bms_current)add("BMS max. Strom",Math.max(Math.abs(mn("bms_current")),Math.abs(mx("bms_current"))).toFixed(0)+" A");
+ if(c.bms_voltage)add("BMS min. Spannung",mn("bms_voltage").toFixed(1)+" V");
+ if(c.bms_soc)add("BMS Ladestand",c.bms_soc[i0].toFixed(0)+" → "+c.bms_soc[i1].toFixed(0)+" %");
+ if(c.bms_remainCap)add("BMS Restkapazität",c.bms_remainCap[i0].toFixed(1)+" → "+c.bms_remainCap[i1].toFixed(1)+" Ah");
  add("Messpunkte",(i1-i0+1).toLocaleString("de-DE"));
  $("tiles").innerHTML=tl.map(([l,v])=>`<div class="tile"><span>${l}</span><b>${v}</b></div>`).join("");
  $("tilesH").textContent=view?"Kennzahlen – gewählter Bereich":"Kennzahlen – ganze Fahrt"}
@@ -189,8 +212,8 @@ async function addFiles(list){
  const files=[...list];if(!files.length)return;let first=-1,bad=0;
  for(const f of files){try{const r=parseWlog(await f.text());if(!r.n||!r.t.length)throw 0;r.name=niceName(f.name);DATA.push(r);if(first<0)first=DATA.length-1}catch(x){bad++}}
  $("err").textContent=bad?bad+" Datei(en) konnten nicht gelesen werden (erwartet: WLOG1-CSV mit Kopfzeile).":"";
- if(first>=0){cur=first;sel=new Set(DEFAULT.filter(k=>D().ch[k]));fresh()}}
-$("demoBtn").onclick=async()=>{try{const r=await fetch("demo-log.csv");if(!r.ok)throw 0;const f=new File([await r.text()],"Demo-Log.csv");addFiles([f])}catch(x){$("err").textContent="Demo-Log konnte nicht geladen werden (nur über die veröffentlichte Seite verfügbar, nicht beim lokalen Öffnen)."}};
+ if(first>=0){cur=first;sel=new Set(DEFAULT.filter(k=>D().ch[k]&&(k!=="gps_speed"||D().gpsOK)));fresh()}}
+$("demoBtn").onclick=async()=>{try{const r=await fetch("demo-log.csv");if(!r.ok)throw 0;addFiles([new File([await r.text()],"Demo-Log.csv")])}catch(x){$("err").textContent="Demo-Log konnte nicht geladen werden (nur über die veröffentlichte Seite verfügbar, nicht beim lokalen Öffnen)."}};
 $("f0").onchange=e=>{addFiles(e.target.files);e.target.value=""};
 addEventListener("dragover",e=>{e.preventDefault();$("welcome").firstElementChild.classList.add("over")});
 addEventListener("dragleave",()=>$("welcome").firstElementChild.classList.remove("over"));
@@ -199,14 +222,16 @@ function sortedKeys(d){return Object.keys(d.ch).sort((a,b)=>rank(a)-rank(b)||(a<
 function buildChips(){
  const d=D(),keys=sortedKeys(d),used=new Set(),box=$("chips");box.innerHTML="";
  const cats=CATS.map(([n,ks])=>[n,ks.filter(k=>d.ch[k])]);
- const known=new Set(CATS.flatMap(c=>c[1]));cats.push(["Weitere / Konfiguration",keys.filter(k=>!known.has(k))]);
+ const isCell=k=>/^bms\d?_cell\d+$/.test(k);cats.push(["BMS-Zellen",keys.filter(isCell)]);
+ const known=new Set(CATS.flatMap(c=>c[1]));cats.push(["Weitere / Konfiguration",keys.filter(k=>!known.has(k)&&!isCell(k))]);
  cats.forEach(([n,ks])=>{if(!ks.length)return;const h=document.createElement("div");h.className="cat";h.textContent=n;box.appendChild(h);
   const w=document.createElement("div");w.className="chips";box.appendChild(w);
   ks.forEach(k=>{const m=meta(k),l=document.createElement("label");l.className="chip"+(sel.has(k)?" on":"");l.style.setProperty("--c",colorOf(k));l.title=k;
    l.innerHTML=`<input type="checkbox" ${sel.has(k)?"checked":""}><i></i>${m.label}${m.unit?` <span style="color:var(--ink2)">${m.unit}</span>`:""}`;
-   l.querySelector("input").onchange=e=>{e.target.checked?sel.add(k):sel.delete(k);l.classList.toggle("on",e.target.checked);buildPanels();redraw()};w.appendChild(l)})});
- const cs=Object.entries(d.cst);$("cst").innerHTML=cs.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Konstante Werte in dieser Fahrt (${cs.length}) – nicht als Verlauf darstellbar</summary><table class="cst">${cs.map(([k,v])=>`<tr><td>${meta(k).label}</td><td>${v}</td></tr>`).join("")}</table></details>`:""}
-$("cDef").onclick=()=>{sel=new Set(DEFAULT.filter(k=>D().ch[k]));buildChips();buildPanels();redraw()};
+   l.querySelector("input").onchange=e=>{e.target.checked?sel.add(k):sel.delete(k);l.classList.toggle("on",e.target.checked);buildPanels();redraw()};w.appendChild(l)});
+  if(n==="BMS-Zellen"){const bt=document.createElement("button");bt.textContent="alle an/aus";bt.style.cssText="padding:3px 9px;font-size:12px";bt.onclick=()=>{const all=ks.every(k=>sel.has(k));ks.forEach(k=>all?sel.delete(k):sel.add(k));buildChips();buildPanels();redraw()};w.appendChild(bt)}});
+ const cs=Object.entries(d.cst);$("cst").innerHTML=cs.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px;color:var(--ink2)">Konstante Werte in dieser Fahrt (${cs.length}) – nicht als Verlauf darstellbar</summary><table class="cst">${cs.map(([k,v])=>`<tr><td>${meta(k).label}</td><td>${v===-200?"-200 (kein Fühler)":v}</td></tr>`).join("")}</table></details>`:""}
+$("cDef").onclick=()=>{sel=new Set(DEFAULT.filter(k=>D().ch[k]&&(k!=="gps_speed"||D().gpsOK)));buildChips();buildPanels();redraw()};
 $("cAll").onclick=()=>{sel=new Set(Object.keys(D().ch).filter(k=>!/^gps_l/.test(k)));buildChips();buildPanels();redraw()};
 $("cNone").onclick=()=>{sel=new Set();buildChips();buildPanels();redraw()};
 
@@ -216,9 +241,9 @@ function buildPanels(){
  const d=D(),host=$("charts");host.innerHTML="";panels=[];
  const byG={};[...sel].filter(k=>d.ch[k]).forEach(k=>{(byG[gidOf(k)]=byG[gidOf(k)]||[]).push(k)});
  Object.entries(byG).map(([g,ks])=>[g,ks.sort((a,b)=>rank(a)-rank(b))]).sort((a,b)=>rank(a[1][0])-rank(b[1][0])).forEach(([g,keys])=>{
-  const m0=meta(keys[0]);const title=keys.length>1&&GROUPS[g]?GROUPS[g].t:m0.label;
+  const m0=meta(keys[0]);const title=keys.length>1?(GROUPS[g]?GROUPS[g].t:g==="cellsall"?"Zellspannungen":m0.label):m0.label;
   const el=document.createElement("div");el.className="panel";
-  const lg=keys.length>1?'<span class="lg">'+keys.map(k=>`<span><i style="background:${colorOf(k)}"></i>${meta(k).label}</span>`).join("")+'</span>':'';
+  const lg=keys.length>8?`<span class="lg">${keys.length} Zellen</span>`:keys.length>1?'<span class="lg">'+keys.map(k=>`<span><i style="background:${colorOf(k)}"></i>${meta(k).label}</span>`).join("")+'</span>':'';
   el.innerHTML=`<div class="ph"><strong>${title}${m0.unit?` <span style="font-weight:400;color:var(--ink2)">(${m0.unit})</span>`:""}</strong>${lg}<span class="val"></span><button class="x" title="ausblenden">×</button></div><canvas class="ch"></canvas>`;
   host.appendChild(el);
   const o={keys,c:el.querySelector("canvas"),val:el.querySelector(".val"),oc:document.createElement("canvas"),key:null,drag:null};
@@ -234,7 +259,7 @@ function drawChart(o){
   const i0=Math.max(0,lower(d.t,t0)-1),i1=Math.min(d.n-1,lower(d.t,t1)+1),W=w-M.l-M.r,H=h-M.t-M.b;
   let lo=Infinity,hi=-Infinity;const sc=meta(o.keys[0]).sc;
   o.keys.forEach(k=>{const a=d.ch[k],s=meta(k).sc;for(let i=i0;i<=i1;i++){const v=a[i]*s;if(v<lo)lo=v;if(v>hi)hi=v}});
-  if(!isFinite(lo)){lo=0;hi=1}if(lo>0&&o.keys.some(k=>/^(speed|gps_speed|power|current|phaseA|phaseC|rpm|throttle)$/.test(k)))lo=0;
+  if(!isFinite(lo)){lo=0;hi=1}if(lo>0&&o.keys.some(k=>/^(speed|gps_speed|power|current|phaseA|phaseC|rpm|throttle|bms_cellDelta|bms_remainCap)$/.test(k)))lo=0;
   if(hi-lo<1e-6){hi=lo+1;lo-=1}
   const pad=(hi-lo)*.06;if(lo!==0)lo-=pad;hi+=pad;
   const X=t=>M.l+(t-t0)/(t1-t0)*W,Y=v=>M.t+H-(v-lo)/(hi-lo)*H;
@@ -255,7 +280,8 @@ function drawChart(o){
  if(hoverT!==null&&hoverT>=G.t0&&hoverT<=G.t1){const i=Math.min(d.n-1,lower(d.t,hoverT)),x=X(d.t[i]);
   g.strokeStyle=css("--ink2");g.lineWidth=1;g.setLineDash([3,3]);g.beginPath();g.moveTo(x,M.t);g.lineTo(x,M.t+G.H);g.stroke();g.setLineDash([]);
   o.keys.forEach(k=>{const v=d.ch[k][i]*meta(k).sc;g.fillStyle=colorOf(k);g.strokeStyle=css("--panel");g.lineWidth=2;g.beginPath();g.arc(x,Y(v),4,0,7);g.stroke();g.fill()});
-  txt=fmtT(d.t[i],true)+" · "+o.keys.map(k=>{const m=meta(k);return(o.keys.length>1?m.label+" ":"")+fmt(d.ch[k][i]*m.sc)+(m.unit?" "+m.unit:"")}).join(" · ")}
+  if(o.keys.length>4){let a=Infinity,b=-Infinity,ka=o.keys[0],kb=o.keys[0];o.keys.forEach(k=>{const v=d.ch[k][i];if(v<a){a=v;ka=k}if(v>b){b=v;kb=k}});const u=meta(o.keys[0]).unit;txt=fmtT(d.t[i],true)+" · min "+meta(ka).label+" "+fmt(a)+" "+u+" · max "+meta(kb).label+" "+fmt(b)+" "+u}
+  else txt=fmtT(d.t[i],true)+" · "+o.keys.map(k=>{const m=meta(k);return(o.keys.length>1?m.label+" ":"")+fmt(d.ch[k][i]*m.sc)+(m.unit?" "+m.unit:"")}).join(" · ")}
  o.val.textContent=txt}
 function drawCharts(){panels.forEach(drawChart)}
 const xToT=(x,w,v)=>{v=v||dom();return v[0]+(v[1]-v[0])*clamp((x-M.l)/(w-M.l-M.r),0,1)};
@@ -324,8 +350,14 @@ const tileUrl=(l,z,x,y)=>LAYERS[l].p.replace("{z}",z).replace("{x}",x).replace("
 function initMap(){
  const d=D(),la=d.ch.gps_lat,lo=d.ch.gps_lng;MP.idx=[];
  if(la&&lo)for(let i=0;i<d.n;i++)if(isFinite(la[i])&&isFinite(lo[i])&&(la[i]!==0||lo[i]!==0))MP.idx.push(i);
- $("mapPanel").style.display=MP.idx.length>1?"":"none";
- const sb=$("mby");sb.innerHTML="";Object.keys(d.ch).filter(k=>!/^gps_l/.test(k)&&!/^cfg_/.test(k)).sort((a,b)=>rank(a)-rank(b)).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=meta(k).label;sb.appendChild(o)});
+
+ let nPos=0,ext=0;if(MP.idx.length>1){const u=new Set();let a=90,b=-90,c0=180,e0=-180;for(const i of MP.idx){u.add(la[i]+","+lo[i]);if(la[i]<a)a=la[i];if(la[i]>b)b=la[i];if(lo[i]<c0)c0=lo[i];if(lo[i]>e0)e0=lo[i]}
+  nPos=u.size;ext=Math.max((b-a)*111320,(e0-c0)*111320*Math.cos((a+b)/2*Math.PI/180))}
+ MP.noTrack=!d.gpsOK||ext<30;
+ $("mapPanel").style.display=(la||d.cst.gps_lat!==undefined)?"":"none";
+ ["map","mctl","mlegend"].forEach(id=>$(id).hidden=MP.noTrack);$("mnote").hidden=!MP.noTrack;
+ $("mnote").textContent=MP.noTrack?"Keine GPS-Strecke aufgezeichnet: "+(d.gpsPos||0)+" verschiedene Position(en) in "+d.n.toLocaleString("de-DE")+" Messpunkten. Vermutlich hatte die App keinen laufenden Standortzugriff (Standortfreigabe prüfen).":"";
+ const sb=$("mby");sb.innerHTML="";Object.keys(d.ch).filter(k=>!/^gps_l/.test(k)&&!/^cfg_/.test(k)&&!/_cell\d+$/.test(k)).sort((a,b)=>rank(a)-rank(b)).forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent=meta(k).label;sb.appendChild(o)});
  MP.by=d.ch.speed?"speed":sb.value;sb.value=MP.by;fitMap(0,d.n-1)}
 function fitMap(a,b){
  const d=D();let mnA=90,mxA=-90,mnO=180,mxO=-180,n=0;
@@ -359,7 +391,7 @@ function mapBase(){
  $("mlegend").innerHTML=`Färbung: ${meta(MP.by).label}  ${fmt(mn*meta(MP.by).sc)}<span class="grad"></span>${fmt(mx*meta(MP.by).sc)} ${meta(MP.by).unit} · grün = Start, rot = Ende`+(view?" · Bereich außerhalb der Auswahl ist abgedunkelt":"");
  MP.dirty=false}
 function drawMap(){
- if($("mapPanel").style.display==="none")return;
+ if($("mapPanel").style.display==="none"||MP.noTrack)return;
  if(MP.dirty)mapBase();
  const c=$("map"),g=c.getContext("2d"),dpr=devicePixelRatio||1;g.setTransform(1,0,0,1,0,0);g.drawImage(MP.oc,0,0);g.setTransform(dpr,0,0,dpr,0,0);
  if(hoverT!==null){const d=D(),i=Math.min(d.n-1,lower(d.t,hoverT)),la=d.ch.gps_lat[i],lo=d.ch.gps_lng[i];
