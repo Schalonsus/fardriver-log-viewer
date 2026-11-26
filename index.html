@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fardriver Log-Viewer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1a1a19">
+<link rel="icon" href="icon-192.png">
 <meta name="description" content="Inoffizieller Viewer für Fardriver-Logs aus Worthless Controls (WLOG1) mit BMS-Daten: Diagramme, Zoom, Karte. Läuft komplett im Browser.">
 <style>
 :root{color-scheme:light;--bg:#fcfcfb;--panel:#ffffff;--ink:#0b0b0b;--ink2:#52514e;--grid:#e6e5e1;--line:#d4d3ce;--acc:#2a78d6}
@@ -429,6 +432,17 @@ function fresh(){$("welcome").hidden=!!DATA.length;$("app").hidden=!DATA.length;
 addEventListener("resize",()=>{if(!DATA.length)return;ovKey=null;MP.dirty=true;redraw()});
 matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{if(!DATA.length)return;MP.dirty=true;buildChips();redraw()});
 fresh();
+</script>
+<script>
+// Als installierte Web-App: geteilte Dateien (Teilen-Menü der Worthless-App) vom Service Worker übernehmen
+if("serviceWorker" in navigator){
+ try{navigator.serviceWorker.register("sw.js").catch(()=>{})}catch(e){}
+ if(location.search.indexOf("shared")>=0){(async()=>{try{
+  const c=await caches.open("shared-logs"),reqs=await c.keys(),files=[];
+  for(const r of reqs){const res=await c.match(r);files.push(new File([await res.blob()],decodeURIComponent(r.url.split("/").pop().replace(/^\d+-/,""))))}
+  for(const r of reqs)await c.delete(r);
+  history.replaceState(null,"",location.pathname);
+  if(files.length)addFiles(files)}catch(e){}})()}}
 </script>
 </body>
 </html>
